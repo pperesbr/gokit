@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -19,6 +20,16 @@ const (
 	StatusError    Status = "error"
 )
 
+// Stats represent statistical data related to network connections and activity over a specific period of time.
+type Stats struct {
+	BytesIn           int64
+	BytesOut          int64
+	Connections       int64
+	ActiveConnections int64
+	LastActivity      time.Time
+	StartedAt         time.Time
+}
+
 // Tunnel represents an SSH tunnel for forwarding network traffic between a local and remote address over a secure connection.
 type Tunnel struct {
 	config     *SSHConfig
@@ -32,6 +43,7 @@ type Tunnel struct {
 
 	status    Status
 	lastError error
+	stats     Stats
 
 	done chan struct{}
 	mu   sync.RWMutex
@@ -126,6 +138,7 @@ func (t *Tunnel) Start() error {
 	t.actualPort = actualPort
 	t.status = StatusRunning
 	t.done = make(chan struct{})
+	t.stats = Stats{StartedAt: time.Now()}
 	t.mu.Unlock()
 
 	go t.forward()
@@ -163,6 +176,7 @@ func (t *Tunnel) Stop() error {
 
 	t.status = StatusStopped
 	t.actualPort = 0
+	t.stats = Stats{} // <-- limpa stats
 
 	if len(errs) > 0 {
 		return fmt.Errorf("errors stopping tunnel: %v", errs)
@@ -242,6 +256,11 @@ func (t *Tunnel) forward() {
 			}
 		}
 
+		t.mu.Lock()
+		t.stats.Connections++
+		t.stats.ActiveConnections++
+		t.mu.Unlock()
+
 		t.mu.RLock()
 		remoteAddr := fmt.Sprintf("%s:%d", t.remoteHost, t.remotePort)
 		client := t.client
@@ -250,6 +269,9 @@ func (t *Tunnel) forward() {
 		remoteConn, err := client.Dial("tcp", remoteAddr)
 		if err != nil {
 			_ = localConn.Close()
+			t.mu.Lock()
+			t.stats.ActiveConnections--
+			t.mu.Unlock()
 			continue
 		}
 
@@ -259,24 +281,44 @@ func (t *Tunnel) forward() {
 
 // pipe transfers bidirectional data between a local and remote connection until one side closes or encounters an error.
 func (t *Tunnel) pipe(local, remote net.Conn) {
-	defer func() { _ = local.Close() }()
-	defer func() { _ = remote.Close() }()
+	defer func() {
+		_ = local.Close()
+		_ = remote.Close()
+		t.mu.Lock()
+		t.stats.ActiveConnections--
+		t.mu.Unlock()
+	}()
 
 	done := make(chan struct{}, 2)
 
-	// Local -> Remote
+	// Local -> Remote (out)
 	go func() {
-		_, _ = io.Copy(remote, local)
+		n, _ := io.Copy(remote, local)
+		t.mu.Lock()
+		t.stats.BytesOut += n
+		t.stats.LastActivity = time.Now()
+		t.mu.Unlock()
 		done <- struct{}{}
 	}()
 
-	// Remote -> Local
+	// Remote -> Local (in)
 	go func() {
-		_, _ = io.Copy(local, remote)
+		n, _ := io.Copy(local, remote)
+		t.mu.Lock()
+		t.stats.BytesIn += n
+		t.stats.LastActivity = time.Now()
+		t.mu.Unlock()
 		done <- struct{}{}
 	}()
 
 	<-done
+}
+
+// Stats return a snapshot of the tunnel's statistical data, including connection counts and traffic metrics.
+func (t *Tunnel) Stats() Stats {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.stats
 }
 
 // Close gracefully shuts down the tunnel by invoking the Stop method to release resources and terminate connections.
