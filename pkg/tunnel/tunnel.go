@@ -176,7 +176,7 @@ func (t *Tunnel) Stop() error {
 
 	t.status = StatusStopped
 	t.actualPort = 0
-	t.stats = Stats{} // <-- limpa stats
+	t.stats = Stats{}
 
 	if len(errs) > 0 {
 		return fmt.Errorf("errors stopping tunnel: %v", errs)
@@ -293,20 +293,26 @@ func (t *Tunnel) pipe(local, remote net.Conn) {
 
 	// Local -> Remote (out)
 	go func() {
-		n, _ := io.Copy(remote, local)
+		n, err := io.Copy(remote, local)
 		t.mu.Lock()
 		t.stats.BytesOut += n
 		t.stats.LastActivity = time.Now()
+		if err != nil {
+			t.lastError = fmt.Errorf("local->remote copy failed: %w", err)
+		}
 		t.mu.Unlock()
 		done <- struct{}{}
 	}()
 
 	// Remote -> Local (in)
 	go func() {
-		n, _ := io.Copy(local, remote)
+		n, err := io.Copy(local, remote)
 		t.mu.Lock()
 		t.stats.BytesIn += n
 		t.stats.LastActivity = time.Now()
+		if err != nil {
+			t.lastError = fmt.Errorf("remote->local copy failed: %w", err)
+		}
 		t.mu.Unlock()
 		done <- struct{}{}
 	}()
