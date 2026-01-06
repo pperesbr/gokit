@@ -12,10 +12,60 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func TestNewTunnel_MissingConfig(t *testing.T) {
-	_, err := NewTunnel(nil, "remote-host", 1521, 0)
+// =============================================================================
+// Testes do NewTunnel
+// =============================================================================
+
+func TestNewTunnel(t *testing.T) {
+	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
+
+	tun := NewTunnel(cfg, "remote-host", 1521, 0)
+
+	if tun == nil {
+		t.Fatal("expected tunnel to be created")
+	}
+
+	if tun.Status() != StatusStopped {
+		t.Errorf("expected status %s, got %s", StatusStopped, tun.Status())
+	}
+}
+
+func TestNewTunnel_DoesNotConnect(t *testing.T) {
+	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
+
+	tun := NewTunnel(cfg, "remote-host", 1521, 0)
+
+	// Deve estar parado, não conectado
+	if tun.Status() != StatusStopped {
+		t.Errorf("expected status %s, got %s", StatusStopped, tun.Status())
+	}
+
+	// Client deve ser nil (não conectou)
+	if tun.client != nil {
+		t.Error("expected client to be nil")
+	}
+}
+
+// =============================================================================
+// Testes do Validate
+// =============================================================================
+
+func TestValidate_Success(t *testing.T) {
+	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
+	tun := NewTunnel(cfg, "remote-host", 1521, 0)
+
+	err := tun.Validate()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidate_NilConfig(t *testing.T) {
+	tun := NewTunnel(nil, "remote-host", 1521, 0)
+
+	err := tun.Validate()
 	if err == nil {
-		t.Fatal("expected error for missing config")
+		t.Fatal("expected error for nil config")
 	}
 
 	expected := "config is required"
@@ -24,15 +74,13 @@ func TestNewTunnel_MissingConfig(t *testing.T) {
 	}
 }
 
-func TestNewTunnel_MissingRemoteHost(t *testing.T) {
-	cfg, err := NewSSHConfig("paulo", "senha123", "", "bastion.com", "", 22)
-	if err != nil {
-		t.Fatalf("failed to create ssh config: %v", err)
-	}
+func TestValidate_EmptyRemoteHost(t *testing.T) {
+	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
+	tun := NewTunnel(cfg, "", 1521, 0)
 
-	_, err = NewTunnel(cfg, "", 1521, 0)
+	err := tun.Validate()
 	if err == nil {
-		t.Fatal("expected error for missing remoteHost")
+		t.Fatal("expected error for empty remoteHost")
 	}
 
 	expected := "remoteHost is required"
@@ -41,67 +89,119 @@ func TestNewTunnel_MissingRemoteHost(t *testing.T) {
 	}
 }
 
-func TestNewTunnel_InvalidRemotePort(t *testing.T) {
-	cfg, err := NewSSHConfig("paulo", "senha123", "", "bastion.com", "", 22)
-	if err != nil {
-		t.Fatalf("failed to create ssh config: %v", err)
-	}
+func TestValidate_InvalidRemotePort(t *testing.T) {
+	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
 
 	tests := []struct {
 		name string
 		port int
 	}{
-		{"zero port", 0},
-		{"negative port", -1},
+		{"zero", 0},
+		{"negative", -1},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err = NewTunnel(cfg, "remote-host", tt.port, 0)
+			tun := NewTunnel(cfg, "remote-host", tt.port, 0)
+
+			err := tun.Validate()
 			if err == nil {
 				t.Fatal("expected error for invalid remotePort")
-			}
-
-			expected := "remotePort must be greater than 0"
-			if err.Error() != expected {
-				t.Errorf("expected error '%s', got '%s'", expected, err.Error())
 			}
 		})
 	}
 }
 
-func TestNewTunnel_SSHConnectionFailed(t *testing.T) {
-	cfg, err := NewSSHConfig("paulo", "senha123", "", "localhost", "", 22222)
-	if err != nil {
-		t.Fatalf("failed to create ssh config: %v", err)
-	}
+func TestValidate_InvalidLocalPort(t *testing.T) {
+	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
+	tun := NewTunnel(cfg, "remote-host", 1521, -1)
 
-	_, err = NewTunnel(cfg, "remote-host", 1521, 0)
+	err := tun.Validate()
 	if err == nil {
-		t.Fatal("expected error for failed ssh connection")
+		t.Fatal("expected error for negative localPort")
 	}
 }
 
-func TestNewTunnel_AutomaticLocalPort(t *testing.T) {
+// =============================================================================
+// Testes do Start
+// =============================================================================
+
+func TestStart_Success(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
 
-	tun, err := NewTunnel(cfg, "127.0.0.1", 1521, 0)
+	tun := NewTunnel(cfg, "127.0.0.1", 1521, 0)
+
+	err := tun.Start()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	defer tun.Close()
+
+	if tun.Status() != StatusRunning {
+		t.Errorf("expected status %s, got %s", StatusRunning, tun.Status())
+	}
 
 	if tun.LocalPort() <= 0 {
 		t.Errorf("expected positive local port, got %d", tun.LocalPort())
 	}
 }
 
-func TestNewTunnel_FixedLocalPort(t *testing.T) {
+func TestStart_AlreadyRunning(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
 
-	// Encontra uma porta livre
+	tun := NewTunnel(cfg, "127.0.0.1", 1521, 0)
+
+	err := tun.Start()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer tun.Close()
+
+	// Tenta iniciar novamente
+	err = tun.Start()
+	if err == nil {
+		t.Fatal("expected error for already running tunnel")
+	}
+}
+
+func TestStart_ValidationError(t *testing.T) {
+	tun := NewTunnel(nil, "remote-host", 1521, 0)
+
+	err := tun.Start()
+	if err == nil {
+		t.Fatal("expected error for invalid config")
+	}
+
+	if tun.Status() != StatusError {
+		t.Errorf("expected status %s, got %s", StatusError, tun.Status())
+	}
+
+	if tun.LastError() == nil {
+		t.Error("expected LastError to be set")
+	}
+}
+
+func TestStart_SSHConnectionFailed(t *testing.T) {
+	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 59999)
+	tun := NewTunnel(cfg, "remote-host", 1521, 0)
+
+	err := tun.Start()
+	if err == nil {
+		t.Fatal("expected error for failed SSH connection")
+	}
+
+	if tun.Status() != StatusError {
+		t.Errorf("expected status %s, got %s", StatusError, tun.Status())
+	}
+}
+
+func TestStart_FixedLocalPort(t *testing.T) {
+	sshServer, cfg := setupTestSSHServer(t)
+	defer sshServer.Close()
+
+	// Encontra porta livre
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to find free port: %v", err)
@@ -109,7 +209,9 @@ func TestNewTunnel_FixedLocalPort(t *testing.T) {
 	freePort := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
 
-	tun, err := NewTunnel(cfg, "127.0.0.1", 1521, freePort)
+	tun := NewTunnel(cfg, "127.0.0.1", 1521, freePort)
+
+	err = tun.Start()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -120,11 +222,147 @@ func TestNewTunnel_FixedLocalPort(t *testing.T) {
 	}
 }
 
-func TestTunnel_LocalAddr(t *testing.T) {
+// =============================================================================
+// Testes do Stop
+// =============================================================================
+
+func TestStop_Success(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
 
-	tun, err := NewTunnel(cfg, "127.0.0.1", 1521, 0)
+	tun := NewTunnel(cfg, "127.0.0.1", 1521, 0)
+
+	err := tun.Start()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = tun.Stop()
+	if err != nil {
+		t.Errorf("unexpected error on stop: %v", err)
+	}
+
+	if tun.Status() != StatusStopped {
+		t.Errorf("expected status %s, got %s", StatusStopped, tun.Status())
+	}
+}
+
+func TestStop_AlreadyStopped(t *testing.T) {
+	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
+	tun := NewTunnel(cfg, "remote-host", 1521, 0)
+
+	// Nunca foi iniciado, já está parado
+	err := tun.Stop()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestStop_ReleasesPort(t *testing.T) {
+	sshServer, cfg := setupTestSSHServer(t)
+	defer sshServer.Close()
+
+	tun := NewTunnel(cfg, "127.0.0.1", 1521, 0)
+
+	err := tun.Start()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	localAddr := tun.LocalAddr()
+
+	err = tun.Stop()
+	if err != nil {
+		t.Fatalf("unexpected error on stop: %v", err)
+	}
+
+	// Aguarda um pouco para liberar a porta
+	time.Sleep(100 * time.Millisecond)
+
+	// Tenta conectar - deve falhar
+	_, err = net.Dial("tcp", localAddr)
+	if err == nil {
+		t.Error("expected connection to fail after stop")
+	}
+}
+
+// =============================================================================
+// Testes do Restart
+// =============================================================================
+
+func TestRestart_Success(t *testing.T) {
+	sshServer, cfg := setupTestSSHServer(t)
+	defer sshServer.Close()
+
+	tun := NewTunnel(cfg, "127.0.0.1", 1521, 0)
+
+	err := tun.Start()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer tun.Close()
+
+	err = tun.Restart()
+	if err != nil {
+		t.Errorf("unexpected error on restart: %v", err)
+	}
+
+	if tun.Status() != StatusRunning {
+		t.Errorf("expected status %s, got %s", StatusRunning, tun.Status())
+	}
+}
+
+func TestRestart_FromStopped(t *testing.T) {
+	sshServer, cfg := setupTestSSHServer(t)
+	defer sshServer.Close()
+
+	tun := NewTunnel(cfg, "127.0.0.1", 1521, 0)
+
+	// Nunca foi iniciado
+	err := tun.Restart()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	if tun.Status() != StatusRunning {
+		t.Errorf("expected status %s, got %s", StatusRunning, tun.Status())
+	}
+
+	defer tun.Close()
+}
+
+// =============================================================================
+// Testes do UpdateConfig
+// =============================================================================
+
+func TestUpdateConfig(t *testing.T) {
+	cfg1, _ := NewSSHConfig("user1", "pass1", "", "host1", "", 22)
+	cfg2, _ := NewSSHConfig("user2", "pass2", "", "host2", "", 22)
+
+	tun := NewTunnel(cfg1, "remote-host", 1521, 0)
+
+	if tun.config.User != "user1" {
+		t.Errorf("expected user 'user1', got '%s'", tun.config.User)
+	}
+
+	tun.UpdateConfig(cfg2)
+
+	if tun.config.User != "user2" {
+		t.Errorf("expected user 'user2', got '%s'", tun.config.User)
+	}
+}
+
+// =============================================================================
+// Testes dos Getters
+// =============================================================================
+
+func TestLocalAddr(t *testing.T) {
+	sshServer, cfg := setupTestSSHServer(t)
+	defer sshServer.Close()
+
+	tun := NewTunnel(cfg, "127.0.0.1", 1521, 0)
+
+	err := tun.Start()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -132,61 +370,46 @@ func TestTunnel_LocalAddr(t *testing.T) {
 
 	expected := fmt.Sprintf("127.0.0.1:%d", tun.LocalPort())
 	if tun.LocalAddr() != expected {
-		t.Errorf("expected LocalAddr '%s', got '%s'", expected, tun.LocalAddr())
+		t.Errorf("expected '%s', got '%s'", expected, tun.LocalAddr())
 	}
 }
 
-func TestTunnel_RemoteAddr(t *testing.T) {
-	sshServer, cfg := setupTestSSHServer(t)
-	defer sshServer.Close()
+func TestRemoteAddr(t *testing.T) {
+	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
+	tun := NewTunnel(cfg, "oracle-server", 1521, 0)
 
-	tun, err := NewTunnel(cfg, "remote-host", 1521, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer tun.Close()
-
-	expected := "remote-host:1521"
+	expected := "oracle-server:1521"
 	if tun.RemoteAddr() != expected {
-		t.Errorf("expected RemoteAddr '%s', got '%s'", expected, tun.RemoteAddr())
+		t.Errorf("expected '%s', got '%s'", expected, tun.RemoteAddr())
 	}
 }
 
-func TestTunnel_Close(t *testing.T) {
-	sshServer, cfg := setupTestSSHServer(t)
-	defer sshServer.Close()
+func TestLastError_NilWhenNoError(t *testing.T) {
+	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
+	tun := NewTunnel(cfg, "remote-host", 1521, 0)
 
-	tun, err := NewTunnel(cfg, "127.0.0.1", 1521, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	localAddr := tun.LocalAddr()
-
-	err = tun.Close()
-	if err != nil {
-		t.Errorf("unexpected error on close: %v", err)
-	}
-
-	// Verifica se a porta local foi liberada
-	time.Sleep(100 * time.Millisecond)
-	_, err = net.Dial("tcp", localAddr)
-	if err == nil {
-		t.Error("expected connection to fail after tunnel close")
+	if tun.LastError() != nil {
+		t.Errorf("expected nil error, got %v", tun.LastError())
 	}
 }
 
-func TestTunnel_ForwardData(t *testing.T) {
+// =============================================================================
+// Testes de Forward de Dados
+// =============================================================================
+
+func TestForwardData(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
 
-	// Cria servidor de destino fake
+	// Servidor de destino fake
 	destServer := setupTestDestinationServer(t, "hello from oracle")
 	defer destServer.Close()
 
 	destPort := destServer.Addr().(*net.TCPAddr).Port
 
-	tun, err := NewTunnel(cfg, "127.0.0.1", destPort, 0)
+	tun := NewTunnel(cfg, "127.0.0.1", destPort, 0)
+
+	err := tun.Start()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -199,12 +422,12 @@ func TestTunnel_ForwardData(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// Lê a resposta
+	// Lê resposta
 	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 	if err != nil && err != io.EOF {
-		t.Fatalf("failed to read from tunnel: %v", err)
+		t.Fatalf("failed to read: %v", err)
 	}
 
 	response := string(buf[:n])
@@ -213,7 +436,7 @@ func TestTunnel_ForwardData(t *testing.T) {
 	}
 }
 
-func TestTunnel_MultipleConnections(t *testing.T) {
+func TestMultipleConnections(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
 
@@ -227,16 +450,19 @@ func TestTunnel_MultipleConnections(t *testing.T) {
 
 	destPort := destServer.Addr().(*net.TCPAddr).Port
 
-	tun, err := NewTunnel(cfg, "127.0.0.1", destPort, 0)
+	tun := NewTunnel(cfg, "127.0.0.1", destPort, 0)
+
+	err := tun.Start()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	defer tun.Close()
 
+	// Faz 3 conexões
 	for i := 1; i <= 3; i++ {
 		conn, err := net.Dial("tcp", tun.LocalAddr())
 		if err != nil {
-			t.Fatalf("failed to connect to tunnel: %v", err)
+			t.Fatalf("failed to connect: %v", err)
 		}
 
 		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
@@ -258,7 +484,6 @@ func TestTunnel_MultipleConnections(t *testing.T) {
 func setupTestSSHServer(t *testing.T) (net.Listener, *SSHConfig) {
 	t.Helper()
 
-	// Gera chave RSA para o servidor
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("failed to generate private key: %v", err)
@@ -295,8 +520,6 @@ func setupTestSSHServer(t *testing.T) (net.Listener, *SSHConfig) {
 	}()
 
 	port := listener.Addr().(*net.TCPAddr).Port
-
-	// Cria config do cliente (sem knownHostsFile = insecure)
 	cfg, err := NewSSHConfig("testuser", "testpass", "", "127.0.0.1", "", port)
 	if err != nil {
 		listener.Close()
@@ -356,7 +579,6 @@ func handleTestSSHConnection(conn net.Conn, config *ssh.ServerConfig) {
 
 func setupTestDestinationServer(t *testing.T, response string) net.Listener {
 	t.Helper()
-
 	return setupTestDestinationServerFunc(t, func(conn net.Conn) {
 		conn.Write([]byte(response))
 		conn.Close()
@@ -368,7 +590,7 @@ func setupTestDestinationServerFunc(t *testing.T, handler func(net.Conn)) net.Li
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("failed to create destination server: %v", err)
+		t.Fatalf("failed to create listener: %v", err)
 	}
 
 	go func() {
