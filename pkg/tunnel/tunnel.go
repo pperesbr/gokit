@@ -30,7 +30,7 @@ type Stats struct {
 	StartedAt         time.Time
 }
 
-// Tunnel represents an SSH tunnel for forwarding network traffic between a local and remote address over a secure connection.
+// Tunnel represents a secure SSH-based port forwarding connection between a local and a remote host.
 type Tunnel struct {
 	config     *SSHConfig
 	remoteHost string
@@ -49,9 +49,7 @@ type Tunnel struct {
 	mu   sync.RWMutex
 }
 
-// NewTunnel creates a new SSH Tunnel to forward traffic between a local port and a remote host with the given configuration.
-// config specifies the SSH connection parameters, remoteHost is the target host, remotePort is the target port on the remote host,
-// and localPort specifies the local port to listen on (0 to auto-assign). Returns a Tunnel instance.
+// NewTunnel initializes a Tunnel with the provided SSHConfig, remote host, remote port, and local port settings.
 func NewTunnel(config *SSHConfig, remoteHost string, remotePort, localPort int) *Tunnel {
 	return &Tunnel{
 		config:     config,
@@ -62,7 +60,7 @@ func NewTunnel(config *SSHConfig, remoteHost string, remotePort, localPort int) 
 	}
 }
 
-// Validate checks the Tunnel configuration for required fields and ensures values meet expected constraints.
+// Validate checks if the Tunnel's configuration and parameters are valid, returning an error if any validation fails.
 func (t *Tunnel) Validate() error {
 	if t.config == nil {
 		return fmt.Errorf("config is required")
@@ -83,7 +81,7 @@ func (t *Tunnel) Validate() error {
 	return nil
 }
 
-// setError sets the tunnel status to an error state and records the provided error.
+// setError updates the tunnel's status to error and records the provided error as the last encountered error.
 func (t *Tunnel) setError(err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -91,6 +89,7 @@ func (t *Tunnel) setError(err error) {
 	t.lastError = err
 }
 
+// Start initializes and starts the tunnel, setting up the SSH connection and local listener. Returns an error if it fails.
 func (t *Tunnel) Start() error {
 	t.mu.Lock()
 
@@ -110,7 +109,7 @@ func (t *Tunnel) Start() error {
 
 	sshClientConfig := &ssh.ClientConfig{
 		User:            t.config.User,
-		Auth:            []ssh.AuthMethod{t.config.AuthMethod},
+		Auth:            t.config.AuthMethods,
 		HostKeyCallback: t.config.HostKeyCallback,
 		Config: ssh.Config{
 			KeyExchanges: []string{
@@ -158,7 +157,7 @@ func (t *Tunnel) Start() error {
 	return nil
 }
 
-// Stop gracefully shuts down the tunnel by closing connections, releasing resources, and updating the tunnel's status.
+// Stop terminates the tunnel by closing any active connections, freeing resources, and updating the tunnel's status.
 func (t *Tunnel) Stop() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -197,7 +196,7 @@ func (t *Tunnel) Stop() error {
 	return nil
 }
 
-// Restart stops the tunnel if running, then attempts to start it again, returning an error if either operation fails.
+// Restart stops the tunnel if running and then starts it again, returning an error if either operation fails.
 func (t *Tunnel) Restart() error {
 	if err := t.Stop(); err != nil {
 		return fmt.Errorf("failed to stop: %w", err)
@@ -206,28 +205,28 @@ func (t *Tunnel) Restart() error {
 	return t.Start()
 }
 
-// UpdateConfig updates the SSH configuration of the tunnel safely with locking to ensure thread safety.
+// UpdateConfig updates the tunnel's SSH configuration with the provided config, ensuring thread-safe access.
 func (t *Tunnel) UpdateConfig(config *SSHConfig) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.config = config
 }
 
-// Status returns the current operational status of the tunnel, such as running, stopped, or in error state.
+// Status returns the current operational state of the tunnel in a thread-safe manner.
 func (t *Tunnel) Status() Status {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.status
 }
 
-// LastError returns the last error encountered by the tunnel, or nil if no error has occurred.
+// LastError retrieves the last recorded error encountered by the tunnel in a thread-safe manner.
 func (t *Tunnel) LastError() error {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.lastError
 }
 
-// LocalPort returns the local port that the tunnel is using for forwarding traffic, or the assigned port if set to 0.
+// LocalPort returns the port number being used by the tunnel for local connections, ensuring thread-safe access.
 func (t *Tunnel) LocalPort() int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -237,19 +236,31 @@ func (t *Tunnel) LocalPort() int {
 	return t.localPort
 }
 
-// LocalAddr returns the local address that the tunnel is listening on, formatted as a string in the "host:port" format.
+// LocalAddr returns the local address and port as a string in the format "127.0.0.1:<port>".
 func (t *Tunnel) LocalAddr() string {
 	return fmt.Sprintf("127.0.0.1:%d", t.LocalPort())
 }
 
-// RemoteAddr returns the remote address the tunnel is connected to, formatted as "host:port".
+// RemoteAddr retorna o endereço remoto.
 func (t *Tunnel) RemoteAddr() string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return fmt.Sprintf("%s:%d", t.remoteHost, t.remotePort)
 }
 
-// forward establishes bidirectional traffic forwarding between local and remote connections over an SSH tunnel.
+// Stats retrieves the statistical data related to network activity for the tunnel in a thread-safe manner.
+func (t *Tunnel) Stats() Stats {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.stats
+}
+
+// Close gracefully shuts down the tunnel by stopping all active connections and releasing resources.
+func (t *Tunnel) Close() error {
+	return t.Stop()
+}
+
+// forward establishes and manages a connection between a local endpoint and a remote endpoint through the tunnel.
 func (t *Tunnel) forward() {
 	for {
 		select {
@@ -291,7 +302,7 @@ func (t *Tunnel) forward() {
 	}
 }
 
-// pipe transfers bidirectional data between a local and remote connection until one side closes or encounters an error.
+// pipe establishes bidirectional data transfer between local and remote connections and manages connection lifecycle.
 func (t *Tunnel) pipe(local, remote net.Conn) {
 	defer func() {
 		_ = local.Close()
@@ -303,7 +314,7 @@ func (t *Tunnel) pipe(local, remote net.Conn) {
 
 	done := make(chan struct{}, 2)
 
-	// Local -> Remote (out)
+	// Local -> Remote
 	go func() {
 		n, err := io.Copy(remote, local)
 		t.mu.Lock()
@@ -316,7 +327,7 @@ func (t *Tunnel) pipe(local, remote net.Conn) {
 		done <- struct{}{}
 	}()
 
-	// Remote -> Local (in)
+	// Remote -> Local
 	go func() {
 		n, err := io.Copy(local, remote)
 		t.mu.Lock()
@@ -330,16 +341,4 @@ func (t *Tunnel) pipe(local, remote net.Conn) {
 	}()
 
 	<-done
-}
-
-// Stats return a snapshot of the tunnel's statistical data, including connection counts and traffic metrics.
-func (t *Tunnel) Stats() Stats {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.stats
-}
-
-// Close gracefully shuts down the tunnel by invoking the Stop method to release resources and terminate connections.
-func (t *Tunnel) Close() error {
-	return t.Stop()
 }

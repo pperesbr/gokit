@@ -16,7 +16,7 @@ type SSHConfig struct {
 	Host            string              `yaml:"host"`
 	KnownHostsFile  string              `yaml:"knownHostsFile"`
 	Port            int                 `yaml:"port"`
-	AuthMethod      ssh.AuthMethod      `yaml:"-"`
+	AuthMethods     []ssh.AuthMethod    `yaml:"-"` // <- mudou
 	HostKeyCallback ssh.HostKeyCallback `yaml:"-"`
 }
 
@@ -78,9 +78,18 @@ func (c *SSHConfig) Validate() error {
 			return fmt.Errorf("failed to parse keyFile: %w", err)
 		}
 
-		c.AuthMethod = ssh.PublicKeys(signer)
+		c.AuthMethods = []ssh.AuthMethod{ssh.PublicKeys(signer)}
 	} else {
-		c.AuthMethod = ssh.Password(c.Password)
+		c.AuthMethods = []ssh.AuthMethod{
+			ssh.Password(c.Password),
+			ssh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) ([]string, error) {
+				answers := make([]string, len(questions))
+				for i := range questions {
+					answers[i] = c.Password
+				}
+				return answers, nil
+			}),
+		}
 	}
 
 	if c.KnownHostsFile != "" {
@@ -94,5 +103,4 @@ func (c *SSHConfig) Validate() error {
 	}
 
 	return nil
-
 }

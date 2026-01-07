@@ -49,8 +49,13 @@ func TestNewSSHConfig_WithPassword(t *testing.T) {
 		t.Errorf("expected port 22, got %d", cfg.Port)
 	}
 
-	if cfg.AuthMethod == nil {
-		t.Error("expected AuthMethod to be set")
+	if len(cfg.AuthMethods) == 0 {
+		t.Error("expected AuthMethods to be set")
+	}
+
+	// Com password, deve ter 2 métodos: password e keyboard-interactive
+	if len(cfg.AuthMethods) != 2 {
+		t.Errorf("expected 2 AuthMethods, got %d", len(cfg.AuthMethods))
 	}
 
 	if cfg.HostKeyCallback == nil {
@@ -81,8 +86,13 @@ func TestNewSSHConfig_WithKeyFile(t *testing.T) {
 		t.Errorf("expected keyFile '%s', got '%s'", keyPath, cfg.KeyFile)
 	}
 
-	if cfg.AuthMethod == nil {
-		t.Error("expected AuthMethod to be set")
+	if len(cfg.AuthMethods) == 0 {
+		t.Error("expected AuthMethods to be set")
+	}
+
+	// Com keyFile, deve ter 1 método: publickey
+	if len(cfg.AuthMethods) != 1 {
+		t.Errorf("expected 1 AuthMethod, got %d", len(cfg.AuthMethods))
 	}
 }
 
@@ -95,8 +105,13 @@ func TestNewSSHConfig_KeyFileTakesPrecedence(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.AuthMethod == nil {
-		t.Error("expected AuthMethod to be set")
+	if len(cfg.AuthMethods) == 0 {
+		t.Error("expected AuthMethods to be set")
+	}
+
+	// KeyFile tem precedência, deve ter só 1 método
+	if len(cfg.AuthMethods) != 1 {
+		t.Errorf("expected 1 AuthMethod (keyFile precedence), got %d", len(cfg.AuthMethods))
 	}
 }
 

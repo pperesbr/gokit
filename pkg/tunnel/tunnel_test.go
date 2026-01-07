@@ -12,10 +12,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// =============================================================================
-// Testes do NewTunnel
-// =============================================================================
-
+// TestNewTunnel verifies the creation of a new Tunnel instance and its initial state, ensuring proper configuration and status.
 func TestNewTunnel(t *testing.T) {
 	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
 
@@ -30,26 +27,22 @@ func TestNewTunnel(t *testing.T) {
 	}
 }
 
+// TestNewTunnel_DoesNotConnect verifies that a newly created tunnel is not connected and remains in the 'stopped' status.
 func TestNewTunnel_DoesNotConnect(t *testing.T) {
 	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
 
 	tun := NewTunnel(cfg, "remote-host", 1521, 0)
 
-	// Deve estar parado, não conectado
 	if tun.Status() != StatusStopped {
 		t.Errorf("expected status %s, got %s", StatusStopped, tun.Status())
 	}
 
-	// Client deve ser nil (não conectou)
 	if tun.client != nil {
 		t.Error("expected client to be nil")
 	}
 }
 
-// =============================================================================
-// Testes do Validate
-// =============================================================================
-
+// TestValidate_Success verifies that a tunnel with valid configuration passes the validation without errors.
 func TestValidate_Success(t *testing.T) {
 	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
 	tun := NewTunnel(cfg, "remote-host", 1521, 0)
@@ -60,6 +53,7 @@ func TestValidate_Success(t *testing.T) {
 	}
 }
 
+// TestValidate_NilConfig verifies that the Validate method returns an error when the Tunnel is initialized with a nil SSHConfig.
 func TestValidate_NilConfig(t *testing.T) {
 	tun := NewTunnel(nil, "remote-host", 1521, 0)
 
@@ -74,6 +68,7 @@ func TestValidate_NilConfig(t *testing.T) {
 	}
 }
 
+// TestValidate_EmptyRemoteHost verifies that the validation fails when the remoteHost is empty, returning the expected error.
 func TestValidate_EmptyRemoteHost(t *testing.T) {
 	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
 	tun := NewTunnel(cfg, "", 1521, 0)
@@ -89,6 +84,7 @@ func TestValidate_EmptyRemoteHost(t *testing.T) {
 	}
 }
 
+// TestValidate_InvalidRemotePort tests the validation of invalid remotePort values in Tunnel configuration.
 func TestValidate_InvalidRemotePort(t *testing.T) {
 	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
 
@@ -112,6 +108,7 @@ func TestValidate_InvalidRemotePort(t *testing.T) {
 	}
 }
 
+// TestValidate_InvalidLocalPort verifies that Tunnel.Validate() returns an error when the localPort is set to a negative value.
 func TestValidate_InvalidLocalPort(t *testing.T) {
 	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
 	tun := NewTunnel(cfg, "remote-host", 1521, -1)
@@ -122,10 +119,7 @@ func TestValidate_InvalidLocalPort(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Testes do Start
-// =============================================================================
-
+// TestStart_Success verifies that the tunnel starts successfully, achieves a running status, and assigns a valid port.
 func TestStart_Success(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
@@ -147,6 +141,7 @@ func TestStart_Success(t *testing.T) {
 	}
 }
 
+// TestStart_AlreadyRunning validates that attempting to start an already running tunnel returns an appropriate error.
 func TestStart_AlreadyRunning(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
@@ -159,13 +154,13 @@ func TestStart_AlreadyRunning(t *testing.T) {
 	}
 	defer tun.Close()
 
-	// Tenta iniciar novamente
 	err = tun.Start()
 	if err == nil {
 		t.Fatal("expected error for already running tunnel")
 	}
 }
 
+// TestStart_ValidationError verifies that the Tunnel's Start method correctly handles invalid configurations and updates its status.
 func TestStart_ValidationError(t *testing.T) {
 	tun := NewTunnel(nil, "remote-host", 1521, 0)
 
@@ -183,6 +178,8 @@ func TestStart_ValidationError(t *testing.T) {
 	}
 }
 
+// TestStart_SSHConnectionFailed verifies that the tunnel's Start method handles a failed SSH connection gracefully.
+// It checks if an error is returned and ensures the tunnel's status is set to StatusError.
 func TestStart_SSHConnectionFailed(t *testing.T) {
 	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 59999)
 	tun := NewTunnel(cfg, "remote-host", 1521, 0)
@@ -197,11 +194,11 @@ func TestStart_SSHConnectionFailed(t *testing.T) {
 	}
 }
 
+// TestStart_FixedLocalPort verifies that the tunnel starts successfully with a fixed local port and matches the expected port.
 func TestStart_FixedLocalPort(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
 
-	// Encontra porta livre
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to find free port: %v", err)
@@ -222,10 +219,7 @@ func TestStart_FixedLocalPort(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Testes do Stop
-// =============================================================================
-
+// TestStop_Success verifies that the Tunnel's Stop method successfully terminates the connection and updates the status.
 func TestStop_Success(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
@@ -247,17 +241,18 @@ func TestStop_Success(t *testing.T) {
 	}
 }
 
+// TestStop_AlreadyStopped verifies that calling Stop on a tunnel that hasn't been started does not return an error.
 func TestStop_AlreadyStopped(t *testing.T) {
 	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
 	tun := NewTunnel(cfg, "remote-host", 1521, 0)
 
-	// Nunca foi iniciado, já está parado
 	err := tun.Stop()
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
 
+// TestStop_ReleasesPort verifies that the tunnel releases the local port and prevents new connections after stopping.
 func TestStop_ReleasesPort(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
@@ -276,20 +271,15 @@ func TestStop_ReleasesPort(t *testing.T) {
 		t.Fatalf("unexpected error on stop: %v", err)
 	}
 
-	// Aguarda um pouco para liberar a porta
 	time.Sleep(100 * time.Millisecond)
 
-	// Tenta conectar - deve falhar
 	_, err = net.Dial("tcp", localAddr)
 	if err == nil {
 		t.Error("expected connection to fail after stop")
 	}
 }
 
-// =============================================================================
-// Testes do Restart
-// =============================================================================
-
+// TestRestart_Success verifies that a tunnel can successfully restart and maintains the expected StatusRunning state afterward.
 func TestRestart_Success(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
@@ -312,13 +302,13 @@ func TestRestart_Success(t *testing.T) {
 	}
 }
 
+// TestRestart_FromStopped verifies the behavior of the Tunnel's Restart method when invoked on a tunnel in a stopped state.
 func TestRestart_FromStopped(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
 
 	tun := NewTunnel(cfg, "127.0.0.1", 1521, 0)
 
-	// Nunca foi iniciado
 	err := tun.Restart()
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -331,10 +321,7 @@ func TestRestart_FromStopped(t *testing.T) {
 	defer tun.Close()
 }
 
-// =============================================================================
-// Testes do UpdateConfig
-// =============================================================================
-
+// TestUpdateConfig verifies the behavior of the Tunnel's UpdateConfig method by ensuring the SSH configuration is updated correctly.
 func TestUpdateConfig(t *testing.T) {
 	cfg1, _ := NewSSHConfig("user1", "pass1", "", "host1", "", 22)
 	cfg2, _ := NewSSHConfig("user2", "pass2", "", "host2", "", 22)
@@ -352,10 +339,7 @@ func TestUpdateConfig(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Testes dos Getters
-// =============================================================================
-
+// TestLocalAddr verifies that the LocalAddr method of the Tunnel returns the correct formatted local address and port.
 func TestLocalAddr(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
@@ -374,6 +358,7 @@ func TestLocalAddr(t *testing.T) {
 	}
 }
 
+// TestRemoteAddr verifies that the Tunnel's RemoteAddr method returns the expected remote address in the correct format.
 func TestRemoteAddr(t *testing.T) {
 	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
 	tun := NewTunnel(cfg, "oracle-server", 1521, 0)
@@ -384,6 +369,7 @@ func TestRemoteAddr(t *testing.T) {
 	}
 }
 
+// TestLastError_NilWhenNoError ensures that calling LastError on a tunnel returns nil when no error has occurred.
 func TestLastError_NilWhenNoError(t *testing.T) {
 	cfg, _ := NewSSHConfig("user", "pass", "", "localhost", "", 22)
 	tun := NewTunnel(cfg, "remote-host", 1521, 0)
@@ -393,15 +379,11 @@ func TestLastError_NilWhenNoError(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Testes de Forward de Dados
-// =============================================================================
-
+// TestForwardData verifies the functionality of tunneling data through an SSH server to a destination server.
 func TestForwardData(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
 
-	// Servidor de destino fake
 	destServer := setupTestDestinationServer(t, "hello from oracle")
 	defer destServer.Close()
 
@@ -415,14 +397,12 @@ func TestForwardData(t *testing.T) {
 	}
 	defer tun.Close()
 
-	// Conecta no tunnel
 	conn, err := net.Dial("tcp", tun.LocalAddr())
 	if err != nil {
 		t.Fatalf("failed to connect to tunnel: %v", err)
 	}
 	defer conn.Close()
 
-	// Lê resposta
 	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
@@ -436,6 +416,7 @@ func TestForwardData(t *testing.T) {
 	}
 }
 
+// TestMultipleConnections verifies if multiple sequential connections to the tunnel are handled correctly without errors.
 func TestMultipleConnections(t *testing.T) {
 	sshServer, cfg := setupTestSSHServer(t)
 	defer sshServer.Close()
@@ -458,7 +439,6 @@ func TestMultipleConnections(t *testing.T) {
 	}
 	defer tun.Close()
 
-	// Faz 3 conexões
 	for i := 1; i <= 3; i++ {
 		conn, err := net.Dial("tcp", tun.LocalAddr())
 		if err != nil {
@@ -477,10 +457,7 @@ func TestMultipleConnections(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
+// setupTestSSHServer creates and starts an SSH server for testing purposes and returns the listener and SSH config.
 func setupTestSSHServer(t *testing.T) (net.Listener, *SSHConfig) {
 	t.Helper()
 
@@ -529,6 +506,7 @@ func setupTestSSHServer(t *testing.T) (net.Listener, *SSHConfig) {
 	return listener, cfg
 }
 
+// handleTestSSHConnection manages an incoming SSH connection and handles direct-tcpip channel requests for forwarding.
 func handleTestSSHConnection(conn net.Conn, config *ssh.ServerConfig) {
 	defer conn.Close()
 
@@ -577,6 +555,7 @@ func handleTestSSHConnection(conn net.Conn, config *ssh.ServerConfig) {
 	}
 }
 
+// setupTestDestinationServer creates a test TCP server that sends a fixed response to incoming connections.
 func setupTestDestinationServer(t *testing.T, response string) net.Listener {
 	t.Helper()
 	return setupTestDestinationServerFunc(t, func(conn net.Conn) {
@@ -585,6 +564,7 @@ func setupTestDestinationServer(t *testing.T, response string) net.Listener {
 	})
 }
 
+// setupTestDestinationServerFunc creates a test TCP server, uses the provided handler for incoming connections, and returns a listener.
 func setupTestDestinationServerFunc(t *testing.T, handler func(net.Conn)) net.Listener {
 	t.Helper()
 
