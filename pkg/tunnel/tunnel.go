@@ -112,6 +112,18 @@ func (t *Tunnel) Start() error {
 		User:            t.config.User,
 		Auth:            []ssh.AuthMethod{t.config.AuthMethod},
 		HostKeyCallback: t.config.HostKeyCallback,
+		Config: ssh.Config{
+			KeyExchanges: []string{
+				"diffie-hellman-group-exchange-sha256",
+				"diffie-hellman-group14-sha256",
+				"diffie-hellman-group14-sha1",
+				"curve25519-sha256",
+				"curve25519-sha256@libssh.org",
+				"ecdh-sha2-nistp256",
+				"ecdh-sha2-nistp384",
+				"ecdh-sha2-nistp521",
+			},
+		},
 	}
 
 	client, err := ssh.Dial("tcp", t.config.Addr(), sshClientConfig)
