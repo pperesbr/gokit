@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/pperesbr/gokit/pkg/dsn"
+	"github.com/pperesbr/gokit/pkg/dsn/mysql"
 	"github.com/pperesbr/gokit/pkg/dsn/oracle"
 	"github.com/pperesbr/gokit/pkg/dsn/postgres"
 )
@@ -12,6 +13,7 @@ func setupFactory() *dsn.Factory {
 	f := dsn.NewFactory()
 	f.Register("oracle", oracle.NewBuilder)
 	f.Register("postgres", postgres.NewBuilder)
+	f.Register("mysql", mysql.NewBuilder)
 	return f
 }
 
@@ -211,6 +213,83 @@ postgres:
 
 	if builder.Driver() != "postgres" {
 		t.Errorf("Driver() = %q, want %q", builder.Driver(), "postgres")
+	}
+}
+
+func TestFactory_LoadFromBytes_MySQL(t *testing.T) {
+	yaml := `
+host: localhost
+port: 3306
+database: mydb
+user: app
+password: secret
+`
+	f := setupFactory()
+	builder, err := f.BuildFromDriver("mysql", []byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if builder.Driver() != "mysql" {
+		t.Errorf("Driver() = %q, want %q", builder.Driver(), "mysql")
+	}
+
+	connStr, err := builder.ConnectionString()
+	if err != nil {
+		t.Fatalf("ConnectionString() error: %v", err)
+	}
+
+	want := "app:secret@tcp(localhost:3306)/mydb?charset=utf8mb4"
+	if connStr != want {
+		t.Errorf("ConnectionString() = %q, want %q", connStr, want)
+	}
+}
+
+func TestFactory_LoadFromBytes_MySQLWithOptions(t *testing.T) {
+	yaml := `
+host: db-server
+port: 3306
+database: mydb
+user: app
+password: secret
+parse_time: true
+charset: utf8mb4
+timeout: 10
+`
+	f := setupFactory()
+	builder, err := f.BuildFromDriver("mysql", []byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	connStr, err := builder.ConnectionString()
+	if err != nil {
+		t.Fatalf("ConnectionString() error: %v", err)
+	}
+
+	want := "app:secret@tcp(db-server:3306)/mydb?charset=utf8mb4&parseTime=true&timeout=10s"
+	if connStr != want {
+		t.Errorf("ConnectionString() = %q, want %q", connStr, want)
+	}
+}
+
+func TestFactory_LoadFromBytes_MySQLAutoDetect(t *testing.T) {
+	yaml := `
+mysql:
+  host: localhost
+  port: 3306
+  database: mydb
+  user: app
+  password: secret
+`
+	f := setupFactory()
+	builder, err := f.LoadFromBytes([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if builder.Driver() != "mysql" {
+		t.Errorf("Driver() = %q, want %q", builder.Driver(), "mysql")
 	}
 }
 
