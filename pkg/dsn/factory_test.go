@@ -41,7 +41,7 @@ password: secret
 		t.Fatalf("ConnectionString() error: %v", err)
 	}
 
-	want := "app/secret@(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=db-server)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCL)))"
+	want := "oracle://app:secret@db-server:1521/ORCL"
 	if connStr != want {
 		t.Errorf("ConnectionString() = %q, want %q", connStr, want)
 	}
@@ -76,7 +76,7 @@ failover: true
 		t.Fatalf("ConnectionString() error: %v", err)
 	}
 
-	want := "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=rac-node1)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=rac-node2)(PORT=1521))(LOAD_BALANCE=ON)(FAILOVER=ON))(CONNECT_DATA=(SERVICE_NAME=ORCL)))"
+	want := "oracle://app:secret@rac-node1:1521,rac-node2:1521/ORCL?FAILOVER=true&LOAD_BALANCE=true"
 	if connStr != want {
 		t.Errorf("ConnectionString() = %q, want %q", connStr, want)
 	}
@@ -113,7 +113,7 @@ failover_delay: 5
 		t.Fatalf("ConnectionString() error: %v", err)
 	}
 
-	want := "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=primary-db)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=standby-db1)(PORT=1521))(FAILOVER=ON))(CONNECT_DATA=(SERVICE_NAME=ORCL)(FAILOVER_MODE=(TYPE=SESSION)(RETRIES=30)(DELAY=5))))"
+	want := "oracle://app:secret@primary-db:1521,standby-db1:1521/ORCL?FAILOVER=true&FAILOVER_DELAY=5&FAILOVER_MODE=SESSION&FAILOVER_RETRIES=30"
 	if connStr != want {
 		t.Errorf("ConnectionString() = %q, want %q", connStr, want)
 	}

@@ -150,7 +150,7 @@ func TestStandaloneConfig_ConnectionString(t *testing.T) {
 					Password: "secret",
 				},
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCL)))",
+			want: "oracle://app:secret@localhost:1521/ORCL",
 		},
 		{
 			name: "with sid",
@@ -163,7 +163,7 @@ func TestStandaloneConfig_ConnectionString(t *testing.T) {
 					Password: "secret",
 				},
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=1521))(CONNECT_DATA=(SID=ORCL)))",
+			want: "oracle://app:secret@localhost:1521?SID=ORCL",
 		},
 		{
 			name: "default port",
@@ -175,10 +175,10 @@ func TestStandaloneConfig_ConnectionString(t *testing.T) {
 					Password: "secret",
 				},
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCL)))",
+			want: "oracle://app:secret@localhost:1521/ORCL",
 		},
 		{
-			name: "with timeouts",
+			name: "with timeout",
 			config: StandaloneConfig{
 				Host:        "localhost",
 				Port:        1521,
@@ -188,11 +188,23 @@ func TestStandaloneConfig_ConnectionString(t *testing.T) {
 					Password: "secret",
 				},
 				Timeouts: Timeouts{
-					ConnectTimeout:          10,
-					TransportConnectTimeout: 5,
+					ConnectTimeout: 10,
 				},
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCL))(CONNECT_TIMEOUT=10)(TRANSPORT_CONNECT_TIMEOUT=5))",
+			want: "oracle://app:secret@localhost:1521/ORCL?TIMEOUT=10",
+		},
+		{
+			name: "with special characters in password",
+			config: StandaloneConfig{
+				Host:        "localhost",
+				Port:        1521,
+				ServiceName: "ORCL",
+				Credentials: Credentials{
+					User:     "app",
+					Password: "p@ss:word/123",
+				},
+			},
+			want: "oracle://app:p%40ss%3Aword%2F123@localhost:1521/ORCL",
 		},
 		{
 			name: "invalid config returns error",

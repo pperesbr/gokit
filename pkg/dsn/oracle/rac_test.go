@@ -164,7 +164,7 @@ func TestRACConfig_ConnectionString(t *testing.T) {
 					Password: "secret",
 				},
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=rac-node1)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=rac-node2)(PORT=1521)))(CONNECT_DATA=(SERVICE_NAME=ORCL)))",
+			want: "oracle://app:secret@rac-node1:1521,rac-node2:1521/ORCL",
 		},
 		{
 			name: "with load balance and failover",
@@ -181,7 +181,7 @@ func TestRACConfig_ConnectionString(t *testing.T) {
 				LoadBalance: true,
 				Failover:    true,
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=rac-node1)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=rac-node2)(PORT=1521))(LOAD_BALANCE=ON)(FAILOVER=ON))(CONNECT_DATA=(SERVICE_NAME=ORCL)))",
+			want: "oracle://app:secret@rac-node1:1521,rac-node2:1521/ORCL?FAILOVER=true&LOAD_BALANCE=true",
 		},
 		{
 			name: "with retry options",
@@ -197,10 +197,10 @@ func TestRACConfig_ConnectionString(t *testing.T) {
 				RetryCount: 3,
 				RetryDelay: 5,
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=rac-node1)(PORT=1521))(RETRY_COUNT=3)(RETRY_DELAY=5))(CONNECT_DATA=(SERVICE_NAME=ORCL)))",
+			want: "oracle://app:secret@rac-node1:1521/ORCL?RETRY_COUNT=3&RETRY_DELAY=5",
 		},
 		{
-			name: "with timeouts",
+			name: "with timeout",
 			config: RACConfig{
 				Nodes: []Node{
 					{Host: "rac-node1", Port: 1521},
@@ -211,11 +211,10 @@ func TestRACConfig_ConnectionString(t *testing.T) {
 					Password: "secret",
 				},
 				Timeouts: Timeouts{
-					ConnectTimeout:          10,
-					TransportConnectTimeout: 5,
+					ConnectTimeout: 10,
 				},
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=rac-node1)(PORT=1521)))(CONNECT_DATA=(SERVICE_NAME=ORCL))(CONNECT_TIMEOUT=10)(TRANSPORT_CONNECT_TIMEOUT=5))",
+			want: "oracle://app:secret@rac-node1:1521/ORCL?TIMEOUT=10",
 		},
 		{
 			name: "with default port",
@@ -229,21 +228,7 @@ func TestRACConfig_ConnectionString(t *testing.T) {
 					Password: "secret",
 				},
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=rac-node1)(PORT=1521)))(CONNECT_DATA=(SERVICE_NAME=ORCL)))",
-		},
-		{
-			name: "with tcps protocol",
-			config: RACConfig{
-				Nodes: []Node{
-					{Host: "rac-node1", Port: 2484, Protocol: "TCPS"},
-				},
-				ServiceName: "ORCL",
-				Credentials: Credentials{
-					User:     "app",
-					Password: "secret",
-				},
-			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCPS)(HOST=rac-node1)(PORT=2484)))(CONNECT_DATA=(SERVICE_NAME=ORCL)))",
+			want: "oracle://app:secret@rac-node1:1521/ORCL",
 		},
 		{
 			name: "invalid config returns error",

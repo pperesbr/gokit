@@ -243,7 +243,7 @@ func TestDataGuardConfig_ConnectionString(t *testing.T) {
 					Password: "secret",
 				},
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=primary-db)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=standby-db1)(PORT=1521))(FAILOVER=ON))(CONNECT_DATA=(SERVICE_NAME=ORCL)))",
+			want: "oracle://app:secret@primary-db:1521,standby-db1:1521/ORCL?FAILOVER=true",
 		},
 		{
 			name: "with multiple standbys",
@@ -259,7 +259,7 @@ func TestDataGuardConfig_ConnectionString(t *testing.T) {
 					Password: "secret",
 				},
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=primary-db)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=standby-db1)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=standby-db2)(PORT=1521))(FAILOVER=ON))(CONNECT_DATA=(SERVICE_NAME=ORCL)))",
+			want: "oracle://app:secret@primary-db:1521,standby-db1:1521,standby-db2:1521/ORCL?FAILOVER=true",
 		},
 		{
 			name: "with failover mode SESSION",
@@ -273,7 +273,7 @@ func TestDataGuardConfig_ConnectionString(t *testing.T) {
 				},
 				FailoverMode: FailoverModeSession,
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=primary-db)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=standby-db1)(PORT=1521))(FAILOVER=ON))(CONNECT_DATA=(SERVICE_NAME=ORCL)(FAILOVER_MODE=(TYPE=SESSION))))",
+			want: "oracle://app:secret@primary-db:1521,standby-db1:1521/ORCL?FAILOVER=true&FAILOVER_MODE=SESSION",
 		},
 		{
 			name: "with failover mode and retries",
@@ -289,10 +289,10 @@ func TestDataGuardConfig_ConnectionString(t *testing.T) {
 				FailoverRetries: 30,
 				FailoverDelay:   5,
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=primary-db)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=standby-db1)(PORT=1521))(FAILOVER=ON))(CONNECT_DATA=(SERVICE_NAME=ORCL)(FAILOVER_MODE=(TYPE=SESSION)(RETRIES=30)(DELAY=5))))",
+			want: "oracle://app:secret@primary-db:1521,standby-db1:1521/ORCL?FAILOVER=true&FAILOVER_DELAY=5&FAILOVER_MODE=SESSION&FAILOVER_RETRIES=30",
 		},
 		{
-			name: "with timeouts",
+			name: "with timeout",
 			config: DataGuardConfig{
 				Primary:     Node{Host: "primary-db", Port: 1521},
 				Standbys:    []Node{{Host: "standby-db1", Port: 1521}},
@@ -302,11 +302,10 @@ func TestDataGuardConfig_ConnectionString(t *testing.T) {
 					Password: "secret",
 				},
 				Timeouts: Timeouts{
-					ConnectTimeout:          10,
-					TransportConnectTimeout: 5,
+					ConnectTimeout: 10,
 				},
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=primary-db)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=standby-db1)(PORT=1521))(FAILOVER=ON))(CONNECT_DATA=(SERVICE_NAME=ORCL))(CONNECT_TIMEOUT=10)(TRANSPORT_CONNECT_TIMEOUT=5))",
+			want: "oracle://app:secret@primary-db:1521,standby-db1:1521/ORCL?FAILOVER=true&TIMEOUT=10",
 		},
 		{
 			name: "with default port",
@@ -319,20 +318,7 @@ func TestDataGuardConfig_ConnectionString(t *testing.T) {
 					Password: "secret",
 				},
 			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=primary-db)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=standby-db1)(PORT=1521))(FAILOVER=ON))(CONNECT_DATA=(SERVICE_NAME=ORCL)))",
-		},
-		{
-			name: "with tcps protocol",
-			config: DataGuardConfig{
-				Primary:     Node{Host: "primary-db", Port: 2484, Protocol: "TCPS"},
-				Standbys:    []Node{{Host: "standby-db1", Port: 2484, Protocol: "TCPS"}},
-				ServiceName: "ORCL",
-				Credentials: Credentials{
-					User:     "app",
-					Password: "secret",
-				},
-			},
-			want: "app/secret@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCPS)(HOST=primary-db)(PORT=2484))(ADDRESS=(PROTOCOL=TCPS)(HOST=standby-db1)(PORT=2484))(FAILOVER=ON))(CONNECT_DATA=(SERVICE_NAME=ORCL)))",
+			want: "oracle://app:secret@primary-db:1521,standby-db1:1521/ORCL?FAILOVER=true",
 		},
 		{
 			name: "invalid config returns error",

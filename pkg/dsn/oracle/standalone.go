@@ -2,7 +2,7 @@ package oracle
 
 import (
 	"fmt"
-	"strings"
+	"net/url"
 
 	"github.com/pperesbr/gokit/pkg/dsn"
 )
@@ -27,8 +27,9 @@ type StandaloneConfig struct {
 	Timeouts
 }
 
-// ConnectionString builds and returns the Oracle connection string in the format:
-// user/password@(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=host)(PORT=port))(CONNECT_DATA=...)(TIMEOUTS...))
+// ConnectionString builds and returns the Oracle connection string in go-ora URL format:
+// oracle://user:password@host:port/service_name
+// or oracle://user:password@host:port?SID=sid
 // It validates the configuration before building the connection string.
 func (s *StandaloneConfig) ConnectionString() (string, error) {
 	if err := s.Validate(); err != nil {
@@ -40,17 +41,32 @@ func (s *StandaloneConfig) ConnectionString() (string, error) {
 		port = DefaultPort
 	}
 
-	connectData := s.buildConnectData()
+	u := &url.URL{
+		Scheme: DriverName,
+		User:   url.UserPassword(s.User, s.Password),
+		Host:   fmt.Sprintf("%s:%d", s.Host, port),
+	}
 
-	desc := fmt.Sprintf(
-		"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=%s)(PORT=%d))(CONNECT_DATA=%s)%s)",
-		s.Host,
-		port,
-		connectData,
-		s.buildTimeouts(),
-	)
+	// ServiceName goes in path, SID goes in query
+	if s.ServiceName != "" {
+		u.Path = s.ServiceName
+	}
 
-	return fmt.Sprintf("%s/%s@%s", s.User, s.Password, desc), nil
+	q := u.Query()
+
+	if s.SID != "" && s.ServiceName == "" {
+		q.Set("SID", s.SID)
+	}
+
+	if s.ConnectTimeout > 0 {
+		q.Set("TIMEOUT", fmt.Sprintf("%d", s.ConnectTimeout))
+	}
+
+	if len(q) > 0 {
+		u.RawQuery = q.Encode()
+	}
+
+	return u.String(), nil
 }
 
 // Validate checks if all required configuration fields are properly set.
@@ -78,33 +94,6 @@ func (s *StandaloneConfig) Validate() error {
 	}
 
 	return nil
-}
-
-// buildConnectData builds the CONNECT_DATA portion of the connection descriptor.
-// It returns either (SERVICE_NAME=...) or (SID=...) based on which field is set.
-// ServiceName takes precedence over SID if both are specified.
-func (c *StandaloneConfig) buildConnectData() string {
-	if c.ServiceName != "" {
-		return fmt.Sprintf("(SERVICE_NAME=%s)", c.ServiceName)
-	}
-	return fmt.Sprintf("(SID=%s)", c.SID)
-}
-
-// buildTimeouts builds the timeout parameters portion of the connection descriptor.
-// It includes CONNECT_TIMEOUT and TRANSPORT_CONNECT_TIMEOUT if they are greater than zero.
-// Returns an empty string if no timeouts are configured.
-func (c *StandaloneConfig) buildTimeouts() string {
-	var parts []string
-
-	if c.ConnectTimeout > 0 {
-		parts = append(parts, fmt.Sprintf("(CONNECT_TIMEOUT=%d)", c.ConnectTimeout))
-	}
-
-	if c.TransportConnectTimeout > 0 {
-		parts = append(parts, fmt.Sprintf("(TRANSPORT_CONNECT_TIMEOUT=%d)", c.TransportConnectTimeout))
-	}
-
-	return strings.Join(parts, "")
 }
 
 // Driver returns the name of the Oracle database driver.

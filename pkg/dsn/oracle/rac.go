@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/pperesbr/gokit/pkg/dsn"
@@ -65,78 +66,61 @@ func (c *RACConfig) Validate() error {
 	return nil
 }
 
-// ConnectionString generates the Oracle RAC connection string.
-// It validates the configuration and builds a TNS descriptor with multiple addresses,
-// load balancing, failover, and timeout settings.
+// ConnectionString generates the Oracle RAC connection string in go-ora URL format.
+// Format: oracle://user:password@host1:port1,host2:port2/service_name?FAILOVER=true&LOAD_BALANCE=true
+// It validates the configuration and builds a URL with multiple hosts.
 func (c *RACConfig) ConnectionString() (string, error) {
 	if err := c.Validate(); err != nil {
 		return "", err
 	}
 
-	addressList := c.buildAddressList()
-	connectData := fmt.Sprintf("(SERVICE_NAME=%s)", c.ServiceName)
+	// Build hosts list
+	hosts := c.buildHostsList()
 
-	desc := fmt.Sprintf(
-		"(DESCRIPTION=(ADDRESS_LIST=%s%s)(CONNECT_DATA=%s)%s)",
-		addressList,
-		c.buildLoadBalanceFailover(),
-		connectData,
-		c.buildTimeouts(),
-	)
-
-	return fmt.Sprintf("%s/%s@%s", c.User, c.Password, desc), nil
-}
-
-// buildAddressList constructs the ADDRESS_LIST section of the TNS descriptor
-// by iterating through all configured RAC nodes.
-func (c *RACConfig) buildAddressList() string {
-	var addresses []string
-
-	for _, node := range c.Nodes {
-		node = normalizeNode(node)
-		addr := fmt.Sprintf("(ADDRESS=(PROTOCOL=%s)(HOST=%s)(PORT=%d))", node.Protocol, node.Host, node.Port)
-		addresses = append(addresses, addr)
+	u := &url.URL{
+		Scheme: DriverName,
+		User:   url.UserPassword(c.User, c.Password),
+		Host:   hosts,
+		Path:   c.ServiceName,
 	}
 
-	return strings.Join(addresses, "")
-}
-
-// buildLoadBalanceFailover constructs the load balancing and failover parameters
-// for the TNS descriptor, including retry count and delay settings.
-func (c *RACConfig) buildLoadBalanceFailover() string {
-	var parts []string
+	q := u.Query()
 
 	if c.LoadBalance {
-		parts = append(parts, "(LOAD_BALANCE=ON)")
+		q.Set("LOAD_BALANCE", "true")
 	}
 
 	if c.Failover {
-		parts = append(parts, "(FAILOVER=ON)")
+		q.Set("FAILOVER", "true")
 	}
 
 	if c.RetryCount > 0 {
-		parts = append(parts, fmt.Sprintf("(RETRY_COUNT=%d)", c.RetryCount))
+		q.Set("RETRY_COUNT", fmt.Sprintf("%d", c.RetryCount))
 	}
 
 	if c.RetryDelay > 0 {
-		parts = append(parts, fmt.Sprintf("(RETRY_DELAY=%d)", c.RetryDelay))
+		q.Set("RETRY_DELAY", fmt.Sprintf("%d", c.RetryDelay))
 	}
-
-	return strings.Join(parts, "")
-}
-
-// buildTimeouts constructs the timeout parameters for the TNS descriptor,
-// including connect timeout and transport connect timeout settings.
-func (c *RACConfig) buildTimeouts() string {
-	var parts []string
 
 	if c.ConnectTimeout > 0 {
-		parts = append(parts, fmt.Sprintf("(CONNECT_TIMEOUT=%d)", c.ConnectTimeout))
+		q.Set("TIMEOUT", fmt.Sprintf("%d", c.ConnectTimeout))
 	}
 
-	if c.TransportConnectTimeout > 0 {
-		parts = append(parts, fmt.Sprintf("(TRANSPORT_CONNECT_TIMEOUT=%d)", c.TransportConnectTimeout))
+	if len(q) > 0 {
+		u.RawQuery = q.Encode()
 	}
 
-	return strings.Join(parts, "")
+	return u.String(), nil
+}
+
+// buildHostsList constructs the comma-separated list of hosts for RAC connection.
+func (c *RACConfig) buildHostsList() string {
+	var hosts []string
+
+	for _, node := range c.Nodes {
+		node = normalizeNode(node)
+		hosts = append(hosts, fmt.Sprintf("%s:%d", node.Host, node.Port))
+	}
+
+	return strings.Join(hosts, ",")
 }

@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/pperesbr/gokit/pkg/dsn"
@@ -87,77 +88,64 @@ func (c *DataGuardConfig) Validate() error {
 	return nil
 }
 
-// ConnectionString generates an Oracle Data Guard connection string.
-// It validates the configuration and builds a TNS-style connection string with failover support.
+// ConnectionString generates an Oracle Data Guard connection string in go-ora URL format.
+// Format: oracle://user:password@primary:port,standby1:port/service_name?FAILOVER=true&FAILOVER_MODE=SESSION
+// It validates the configuration and builds a URL with primary and standby hosts.
 func (c *DataGuardConfig) ConnectionString() (string, error) {
 	if err := c.Validate(); err != nil {
 		return "", err
 	}
 
-	addressList := c.buildAddressList()
-	connectData := c.buildConnectData()
+	// Build hosts list (primary + standbys)
+	hosts := c.buildHostsList()
 
-	desc := fmt.Sprintf(
-		"(DESCRIPTION=(ADDRESS_LIST=%s(FAILOVER=ON))(CONNECT_DATA=%s)%s)",
-		addressList,
-		connectData,
-		c.buildTimeouts(),
-	)
+	u := &url.URL{
+		Scheme: DriverName,
+		User:   url.UserPassword(c.User, c.Password),
+		Host:   hosts,
+		Path:   c.ServiceName,
+	}
 
-	return fmt.Sprintf("%s/%s@%s", c.User, c.Password, desc), nil
+	q := u.Query()
+
+	// Data Guard always has failover enabled
+	q.Set("FAILOVER", "true")
+
+	if c.FailoverMode != "" {
+		q.Set("FAILOVER_MODE", c.FailoverMode)
+	}
+
+	if c.FailoverRetries > 0 {
+		q.Set("FAILOVER_RETRIES", fmt.Sprintf("%d", c.FailoverRetries))
+	}
+
+	if c.FailoverDelay > 0 {
+		q.Set("FAILOVER_DELAY", fmt.Sprintf("%d", c.FailoverDelay))
+	}
+
+	if c.ConnectTimeout > 0 {
+		q.Set("TIMEOUT", fmt.Sprintf("%d", c.ConnectTimeout))
+	}
+
+	if len(q) > 0 {
+		u.RawQuery = q.Encode()
+	}
+
+	return u.String(), nil
 }
 
-// buildAddressList constructs the ADDRESS_LIST section of the connection string.
-// It includes the primary node and all standby nodes with their respective protocols, hosts, and ports.
-func (c *DataGuardConfig) buildAddressList() string {
-	var addresses []string
+// buildHostsList constructs the comma-separated list of hosts for Data Guard connection.
+// Primary node comes first, followed by standby nodes.
+func (c *DataGuardConfig) buildHostsList() string {
+	var hosts []string
 
 	primary := normalizeNode(c.Primary)
-	addresses = append(addresses, fmt.Sprintf("(ADDRESS=(PROTOCOL=%s)(HOST=%s)(PORT=%d))", primary.Protocol, primary.Host, primary.Port))
+	hosts = append(hosts, fmt.Sprintf("%s:%d", primary.Host, primary.Port))
 
 	for _, standby := range c.Standbys {
 		standby = normalizeNode(standby)
-		addresses = append(addresses, fmt.Sprintf("(ADDRESS=(PROTOCOL=%s)(HOST=%s)(PORT=%d))", standby.Protocol, standby.Host, standby.Port))
+		hosts = append(hosts, fmt.Sprintf("%s:%d", standby.Host, standby.Port))
 	}
 
-	return strings.Join(addresses, "")
-}
-
-// buildConnectData constructs the CONNECT_DATA section of the connection string.
-// It includes the service name and optional failover configuration with retries and delay settings.
-func (c *DataGuardConfig) buildConnectData() string {
-	parts := []string{fmt.Sprintf("(SERVICE_NAME=%s)", c.ServiceName)}
-
-	if c.FailoverMode != "" {
-		failoverConfig := fmt.Sprintf("(FAILOVER_MODE=(TYPE=%s)", c.FailoverMode)
-
-		if c.FailoverRetries > 0 {
-			failoverConfig += fmt.Sprintf("(RETRIES=%d)", c.FailoverRetries)
-		}
-
-		if c.FailoverDelay > 0 {
-			failoverConfig += fmt.Sprintf("(DELAY=%d)", c.FailoverDelay)
-		}
-
-		failoverConfig += ")"
-		parts = append(parts, failoverConfig)
-	}
-
-	return strings.Join(parts, "")
-}
-
-// buildTimeouts constructs the timeout parameters section of the connection string.
-// It includes CONNECT_TIMEOUT and TRANSPORT_CONNECT_TIMEOUT if they are configured.
-func (c *DataGuardConfig) buildTimeouts() string {
-	var parts []string
-
-	if c.ConnectTimeout > 0 {
-		parts = append(parts, fmt.Sprintf("(CONNECT_TIMEOUT=%d)", c.ConnectTimeout))
-	}
-
-	if c.TransportConnectTimeout > 0 {
-		parts = append(parts, fmt.Sprintf("(TRANSPORT_CONNECT_TIMEOUT=%d)", c.TransportConnectTimeout))
-	}
-
-	return strings.Join(parts, "")
+	return strings.Join(hosts, ",")
 }
