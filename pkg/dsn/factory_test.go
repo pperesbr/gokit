@@ -5,11 +5,13 @@ import (
 
 	"github.com/pperesbr/gokit/pkg/dsn"
 	"github.com/pperesbr/gokit/pkg/dsn/oracle"
+	"github.com/pperesbr/gokit/pkg/dsn/postgres"
 )
 
 func setupFactory() *dsn.Factory {
 	f := dsn.NewFactory()
 	f.Register("oracle", oracle.NewBuilder)
+	f.Register("postgres", postgres.NewBuilder)
 	return f
 }
 
@@ -115,7 +117,7 @@ failover_delay: 5
 	}
 }
 
-func TestFactory_LoadFromBytes_AutoDetectDriver(t *testing.T) {
+func TestFactory_LoadFromBytes_OracleAutoDetect(t *testing.T) {
 	yaml := `
 oracle:
   mode: standalone
@@ -136,9 +138,85 @@ oracle:
 	}
 }
 
+func TestFactory_LoadFromBytes_Postgres(t *testing.T) {
+	yaml := `
+host: localhost
+port: 5432
+database: mydb
+user: app
+password: secret
+`
+	f := setupFactory()
+	builder, err := f.BuildFromDriver("postgres", []byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if builder.Driver() != "postgres" {
+		t.Errorf("Driver() = %q, want %q", builder.Driver(), "postgres")
+	}
+
+	connStr, err := builder.ConnectionString()
+	if err != nil {
+		t.Fatalf("ConnectionString() error: %v", err)
+	}
+
+	want := "postgres://app:secret@localhost:5432/mydb?sslmode=disable"
+	if connStr != want {
+		t.Errorf("ConnectionString() = %q, want %q", connStr, want)
+	}
+}
+
+func TestFactory_LoadFromBytes_PostgresWithSSL(t *testing.T) {
+	yaml := `
+host: secure-db
+port: 5432
+database: mydb
+user: app
+password: secret
+sslmode: require
+connect_timeout: 10
+`
+	f := setupFactory()
+	builder, err := f.BuildFromDriver("postgres", []byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	connStr, err := builder.ConnectionString()
+	if err != nil {
+		t.Fatalf("ConnectionString() error: %v", err)
+	}
+
+	want := "postgres://app:secret@secure-db:5432/mydb?connect_timeout=10&sslmode=require"
+	if connStr != want {
+		t.Errorf("ConnectionString() = %q, want %q", connStr, want)
+	}
+}
+
+func TestFactory_LoadFromBytes_PostgresAutoDetect(t *testing.T) {
+	yaml := `
+postgres:
+  host: localhost
+  port: 5432
+  database: mydb
+  user: app
+  password: secret
+`
+	f := setupFactory()
+	builder, err := f.LoadFromBytes([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if builder.Driver() != "postgres" {
+		t.Errorf("Driver() = %q, want %q", builder.Driver(), "postgres")
+	}
+}
+
 func TestFactory_BuildFromDriver_UnknownDriver(t *testing.T) {
 	f := setupFactory()
-	_, err := f.BuildFromDriver("mysql", []byte("host: localhost"))
+	_, err := f.BuildFromDriver("unknown", []byte("host: localhost"))
 	if err == nil {
 		t.Error("expected error for unknown driver, got nil")
 	}
@@ -146,7 +224,7 @@ func TestFactory_BuildFromDriver_UnknownDriver(t *testing.T) {
 
 func TestFactory_LoadFromBytes_NoSupportedDriver(t *testing.T) {
 	yaml := `
-mysql:
+unknown:
   host: localhost
 `
 	f := setupFactory()
