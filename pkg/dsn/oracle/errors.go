@@ -1,4 +1,3 @@
-// Package oracle provides error definitions for Oracle DSN validation and connection handling.
 package oracle
 
 import "errors"
